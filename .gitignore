@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+playwright-report/
+test-results/
+coverage/
+.vscode/
+.idea/
+uiautomator-dump.xml
+screenshot*.png
+qr-*.png
+data/
