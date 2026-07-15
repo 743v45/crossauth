@@ -29,7 +29,7 @@
 ┌─────────────┐  ① 短信验证码(webhook)    ┌─────────────────────────────┐
 │   iPhone    │ ──快捷指令自动化───────────▶│        服务器 Mac           │
 │ (收B站短信) │                            │  ┌─────────────────────┐   │
-└─────────────┘                            │  │  webhook 服务(hono)  │   │
+└─────────────┘                            │  │  webhook(node:http) │   │
                                            │  │  + 短信缓存           │   │
 ┌─────────────┐  ② CLI 调用(子命令)         │  └──────────┬──────────┘   │
 │  Claude/AI  │ ◀──skill───────────────────▶│             │              │
@@ -55,7 +55,7 @@
 |---|---|---|
 | webhook 服务 | 服务器 Mac · [src/sms/server.ts](../../src/sms/server.ts) | 接收 iPhone POST 的短信,存入缓存 |
 | 短信缓存 + 取码 | [src/sms/store.ts](../../src/sms/store.ts) | 内存缓存短信,正则提取验证码 |
-| 链路握手 + 冷却 | [src/sms/handshake.ts](../../src/sms/handshake.ts) | 发码前确认 webhook 链路通;同号冷却 |
+| 链路握手 + 冷却 | [src/sms/client.ts](../../src/sms/client.ts) + [src/sms/cooldown.ts](../../src/sms/cooldown.ts) | 发码前 ping webhook 确认链路通;同号冷却(文件持久化) |
 | ADB 操作层 | [src/adb/client.ts](../../src/adb/client.ts) | 封装 adb 命令(`execa`) |
 | UI 树解析 | [src/adb/ui-tree.ts](../../src/adb/ui-tree.ts) | 解析 `uiautomator dump` XML,按 resource-id/text 定位元素坐标 |
 | 模拟器控制器 | [src/emulator/controller.ts](../../src/emulator/controller.ts) | 高层操作:截图/点击/输入/等待/push图/窗口显隐 |
@@ -165,26 +165,26 @@ mymy bili scan-web --qr login-qr.png   # 或 --qr https://...
 
 | # | 验收项 | 对应测试 | 状态 |
 |---|---|---|---|
-| 1 | `device screenshot` 保存模拟器截图 | 单测 + 手动 | ⬜ |
-| 2 | `device dump-ui` 导出 UI 树 XML | 单测 + 手动 | ⬜ |
-| 3 | ui-tree 按 resource-id/text 定位元素并返回坐标 | [tests/ui-tree.test.ts](../../tests/ui-tree.test.ts) | ⬜ |
-| 4 | webhook 收 POST → 短信进缓存,`sms latest` 可查 | [tests/sms-store.test.ts](../../tests/sms-store.test.ts) | ⬜ |
-| 5 | 验证码正则从 body 提取 6 位码 | sms-store 单测 | ⬜ |
-| 6 | 链路不通时 `login` 不发码 | 集成测试 | ⬜ |
-| 7 | `login --dry-run` 跑到发码前停下 | 集成测试 | ⬜ |
-| 8 | `login --phone` 端到端验证码登录 | [integration-tests/bilibili-login.spec.ts](../../integration-tests/bilibili-login.spec.ts) | ⬜(待实测) |
-| 9 | `scan-web --qr` 端到端 web 扫码登录 | [integration-tests/bilibili-scan-web.spec.ts](../../integration-tests/bilibili-scan-web.spec.ts) | ⬜(待实测) |
-| 10 | `is-logged-in` 正确返回登录态 | 集成测试 | ⬜ |
-| 11 | 模拟器窗口 show/hide 切换 | 手动 | ⬜ |
+| 1 | `device screenshot` 保存模拟器截图 | 手动 | ✅实现 ⬜手动 |
+| 2 | `device dump-ui` 导出 UI 树 XML | 手动 | ✅实现 ⬜手动 |
+| 3 | ui-tree 按 resource-id/text 定位元素并返回坐标 | [tests/ui-tree.test.ts](../../tests/ui-tree.test.ts) | ✅ 11 passed |
+| 4 | webhook 收 POST → 短信进缓存,`sms latest` 可查 | [tests/sms-webhook.test.ts](../../tests/sms-webhook.test.ts) | ✅ 5 passed |
+| 5 | 验证码正则从 body 提取 6 位码 | [tests/sms-store.test.ts](../../tests/sms-store.test.ts) | ✅ 8 passed |
+| 6 | 链路不通时 `login` 不发码 | [integration-tests/bilibili-login.spec.ts](../../integration-tests/bilibili-login.spec.ts) | ✅实现 ⬜实测 |
+| 7 | `login --dry-run` 跑到发码前停下 | [integration-tests/bilibili-login.spec.ts](../../integration-tests/bilibili-login.spec.ts) | ✅实现 ⬜实测 |
+| 8 | `login --phone` 端到端验证码登录 | [integration-tests/bilibili-login.spec.ts](../../integration-tests/bilibili-login.spec.ts) | ⬜待实测 |
+| 9 | `scan-web --qr` 端到端 web 扫码登录 | [integration-tests/bilibili-scan-web.spec.ts](../../integration-tests/bilibili-scan-web.spec.ts) | ⬜待实测 |
+| 10 | `is-logged-in` 正确返回登录态 | 集成测试 | ✅框架 ⬜实测判定 |
+| 11 | 模拟器窗口 show/hide 切换 | 手动 | ✅实现(osascript) ⬜手动 |
 
-> 8/9/10/11 需装环境实测,本期先交付框架与单测。
+> 单测 24 passed(ui-tree / sms-store / sms-webhook)。8/9/10 需装 Android 环境 + iPhone 联调后实测。
 
 ### 8.2 测试轮次记录
 
 | 轮次 | 日期 | 范围 | 结果 | 备注 |
 |---|---|---|---|---|
-| 1 | 待定 | 单测(ui-tree/sms-store) | ⬜ | 装依赖后跑 |
-| 2 | 待定 | B站真实流程 | ⬜ | 待装 Android 环境 |
+| 1 | 2026-07-16 | 单测(ui-tree / sms-store / sms-webhook) | ✅ 24 passed | Node 22 / pnpm 10 / vitest |
+| 2 | 待定 | B站真实流程(login / scan-web) | ⬜ | 待装 Android 环境 + iPhone 快捷指令 |
 
 ---
 
@@ -213,9 +213,10 @@ auth/
 │   ├── emulator/
 │   │   └── controller.ts    # 高层操作
 │   ├── sms/
-│   │   ├── server.ts        # webhook(hono)
-│   │   ├── store.ts         # 短信缓存 + 取码
-│   │   └── handshake.ts     # 链路握手 + 冷却
+│   │   ├── server.ts        # webhook 服务(node:http)
+│   │   ├── store.ts         # 短信缓存 + 验证码正则
+│   │   ├── client.ts        # CLI 侧:ping / 取码 / 轮询
+│   │   └── cooldown.ts      # 发码冷却(文件持久化)
 │   ├── qr/
 │   │   └── grab.ts          # 二维码抓取 + push 相册
 │   ├── flows/
@@ -233,7 +234,8 @@ auth/
 │   └── bilibili-scan-web.spec.ts
 ├── tests/
 │   ├── ui-tree.test.ts
-│   └── sms-store.test.ts
+│   ├── sms-store.test.ts
+│   └── sms-webhook.test.ts
 └── docs/
     ├── superpowers/specs/2026-07-15-mobile-auth-relay-design.md
     └── iphone-shortcuts.md
@@ -245,7 +247,7 @@ auth/
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| **阶段 1** | 代码框架:adb/emulator/sms/flows/cli/skill/测试骨架 | 🚧 进行中 |
+| **阶段 1** | 代码框架:adb/emulator/sms/flows/cli/skill/测试骨架 | ✅ 完成(单测 24 passed) |
 | **阶段 2** | 装 Android Studio + 模拟器 + B站 App | ⬜(验证期) |
 | **阶段 3** | 实测抓 B站元素定位,填 selectors | ⬜ |
 | **阶段 4** | iPhone 快捷指令联调 + 端到端验收 | ⬜ |
