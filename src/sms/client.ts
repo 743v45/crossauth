@@ -4,6 +4,7 @@
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { SmsMessage } from './store.js';
 
 export interface SmsClientOptions {
   /** webhook 服务地址,默认读 MYMY_WEBHOOK_URL 或 http://localhost:7788 */
@@ -73,4 +74,21 @@ export async function waitForCode(
     await sleep(interval);
   }
   return null;
+}
+
+export interface LatestResponse {
+  ok: boolean;
+  message: SmsMessage | null;
+}
+
+/** 取最新短信(含完整正文) */
+export async function getLatest(
+  filter: { fromContains?: string; bodyContains?: string } = {},
+  opts: SmsClientOptions = {},
+): Promise<LatestResponse> {
+  const u = new URL(`${base(opts)}/sms/latest`);
+  if (filter.fromContains) u.searchParams.set('fromContains', filter.fromContains);
+  if (filter.bodyContains) u.searchParams.set('bodyContains', filter.bodyContains);
+  const res = await fetch(u);
+  return (await res.json()) as LatestResponse;
 }
